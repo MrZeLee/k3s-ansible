@@ -5,6 +5,7 @@
     name: k3s-init
     state: stopped
   failed_when: false
+  tags: [ "register" ]
 
 # k3s-init won't work if the port is already in use
 - name: Stop k3s
@@ -12,12 +13,14 @@
     name: k3s
     state: stopped
   failed_when: false
+  tags: [ "register" ]
 
 - name: Clean previous runs of k3s-init  # noqa command-instead-of-module
   # The systemd module does not support "reset-failed", so we need to resort to command.
   command: systemctl reset-failed k3s-init
   failed_when: false
   changed_when: false
+  tags: [ "register" ]
 
 - name: Deploy K3s http_proxy conf
   include_tasks: http_proxy.yml
@@ -44,6 +47,15 @@
                       k3s server {{ server_init_args }}"
     creates: "{{ systemd_dir }}/k3s-init.service"
 
+- name: Init cluster for register master nodes in a already running cluster
+  command:
+    cmd: "systemd-run -p RestartSec=2 \
+                      -p Restart=on-failure \
+                      --unit=k3s-init \
+                      k3s server --server https://{{ apiserver_endpoint }}:6443 --token {{ k3s_token }}"
+    creates: "{{ systemd_dir }}/k3s-init.service"
+  tags: [ "register" , "never" ]
+
 - name: Verification
   when: not ansible_check_mode
   block:
@@ -53,7 +65,7 @@
       register: nodes
       until: nodes.rc == 0 and (nodes.stdout.split() | length) == (groups[group_name_master | default('master')] | length)  # yamllint disable-line rule:line-length
       retries: "{{ retry_count | default(20) }}"
-      delay: 10
+      delay: 30
       changed_when: false
   always:
     - name: Save logs of k3s-init.service
@@ -67,6 +79,7 @@
         name: k3s-init
         state: stopped
       failed_when: false
+  tags: [ "register" , "never" ]
 
 - name: Copy K3s service file
   register: k3s_service
@@ -76,6 +89,7 @@
     owner: root
     group: root
     mode: 0644
+  tags: [ "register" ]
 
 - name: Enable and check K3s service
   systemd:
@@ -83,34 +97,41 @@
     daemon_reload: true
     state: restarted
     enabled: true
+  tags: [ "register" ]
 
 - name: Wait for node-token
   wait_for:
     path: /var/lib/rancher/k3s/server/node-token
+  tags: [ "register" ]
 
 - name: Register node-token file access mode
   stat:
     path: /var/lib/rancher/k3s/server
   register: p
+  tags: [ "register" ]
 
 - name: Change file access node-token
   file:
     path: /var/lib/rancher/k3s/server
     mode: "g+rx,o+rx"
+  tags: [ "register" ]
 
 - name: Read node-token from master
   slurp:
     src: /var/lib/rancher/k3s/server/node-token
   register: node_token
+  tags: [ "register" ]
 
 - name: Store Master node-token
   set_fact:
     token: "{{ node_token.content | b64decode | regex_replace('\n', '') }}"
+  tags: [ "register" ]
 
 - name: Restore node-token file access
   file:
     path: /var/lib/rancher/k3s/server
     mode: "{{ p.stat.mode }}"
+  tags: [ "register" ]
 
 - name: Create directory .kube
   file:
@@ -118,6 +139,7 @@
     state: directory
     owner: "{{ ansible_user_id }}"
     mode: "u=rwx,g=rx,o="
+  tags: [ "register" ]
 
 - name: Copy config file to user home directory
   copy:
@@ -126,6 +148,7 @@
     remote_src: true
     owner: "{{ ansible_user_id }}"
     mode: "u=rw,g=,o="
+  tags: [ "register" ]
 
 - name: Configure kubectl cluster to {{ endpoint_url }}
   command: >-
@@ -140,30 +163,35 @@
   #   - jinja[invalid]: As of version 6.6.0, ansible-lint complains that the input to ipwrap
   #                     would be undefined. This will not be the case during playbook execution.
   # noqa jinja[invalid]
+  tags: [ "register" ]
 
 - name: Create kubectl symlink
   file:
     src: /usr/local/bin/k3s
     dest: /usr/local/bin/kubectl
     state: link
+  tags: [ "register" ]
 
 - name: Create crictl symlink
   file:
     src: /usr/local/bin/k3s
     dest: /usr/local/bin/crictl
     state: link
+  tags: [ "register" ]
 
 - name: Get contents of manifests folder
   find:
     paths: /var/lib/rancher/k3s/server/manifests
     file_type: file
   register: k3s_server_manifests
+  tags: [ "register" ]
 
 - name: Get sub dirs of manifests folder
   find:
     paths: /var/lib/rancher/k3s/server/manifests
     file_type: directory
   register: k3s_server_manifests_directories
+  tags: [ "register" ]
 
 - name: Remove manifests and folders that are only needed for bootstrapping cluster so k3s doesn't auto apply on start
   file:
@@ -174,3 +202,4 @@
     - "{{ k3s_server_manifests_directories.files }}"
   loop_control:
     label: "{{ item.path }}"
+  tags: [ "register" ]
