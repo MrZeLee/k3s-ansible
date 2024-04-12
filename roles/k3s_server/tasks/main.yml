@@ -46,6 +46,49 @@
                       --unit=k3s-init \
                       k3s server {{ server_init_args }}"
     creates: "{{ systemd_dir }}/k3s-init.service"
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+  tags: [ "register" ]
+
+- name: Read k3s token from a specific host
+  command: cat /var/lib/rancher/k3s/server/token
+  # Run this on a specific host, adjust "your_specific_host" to match the host's name in your inventory
+  become: true
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+  register: k3s_token_result
+  retries: 10  # Number of retries
+  delay: 60  # Delay in seconds between retries
+  until: k3s_token_result.rc == 0
+
+- name: Debug
+  debug:
+    msg: "{{ k3s_token_result.stdout }}"
+
+- name: Update k3s_token in group_vars/all.yml file
+  lineinfile:
+    path: "{{ playbook_dir }}/inventory/my-cluster/group_vars/all.yml"
+    regexp: '^k3s_token:.*$'
+    line: 'k3s_token: "{{ k3s_token_result.stdout }}"'
+  become: true
+  delegate_to: localhost
+  run_once: true
+
+- name: load variables from a file
+  include_vars:
+    file: "{{ playbook_dir }}/inventory/my-cluster/group_vars/all.yml"
+
+- name: Init cluster inside the transient k3s-init service
+  command:
+    cmd: "systemd-run -p RestartSec=2 \
+                      -p Restart=on-failure \
+                      --unit=k3s-init \
+                      k3s server {{ server_init_args }}"
+    creates: "{{ systemd_dir }}/k3s-init.service"
+  loop: "{{ groups['master'] }}"
+  when: "inventory_hostname != groups['master'][0]"
+  delegate_to: "{{ item }}"
+  run_once: true
 
 - name: Init cluster for register master nodes in a already running cluster
   command:
@@ -80,6 +123,12 @@
         state: stopped
       failed_when: false
   tags: [ "register" , "never" ]
+
+- name: Kill the temporary service used for initialization
+  systemd:
+    name: k3s-init
+    state: stopped
+  failed_when: false
 
 - name: Copy K3s service file
   register: k3s_service

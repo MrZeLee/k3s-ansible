@@ -1,4 +1,8 @@
 ---
+- name: load variables from a file
+  include_vars:
+    file: "{{ playbook_dir }}/inventory/my-cluster/group_vars/all.yml"
+
 - name: Check for PXE-booted system
   block:
     - name: Check if system is PXE-booted

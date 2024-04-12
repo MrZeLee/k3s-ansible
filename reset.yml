@@ -14,6 +14,7 @@
       reboot:
         reboot_command: "{{ custom_reboot_command | default(omit) }}"
         reboot_timeout: 3600
+      ignore_errors: true
 
 - name: Revert changes to Proxmox cluster
   hosts: proxmox
