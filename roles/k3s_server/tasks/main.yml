@@ -85,10 +85,7 @@
                       --unit=k3s-init \
                       k3s server {{ server_init_args }}"
     creates: "{{ systemd_dir }}/k3s-init.service"
-  loop: "{{ groups['master'] }}"
   when: "inventory_hostname != groups['master'][0]"
-  delegate_to: "{{ item }}"
-  run_once: true
 
 - name: Init cluster for register master nodes in a already running cluster
   command:
@@ -122,13 +119,6 @@
         name: k3s-init
         state: stopped
       failed_when: false
-  tags: [ "register" , "never" ]
-
-- name: Kill the temporary service used for initialization
-  systemd:
-    name: k3s-init
-    state: stopped
-  failed_when: false
 
 - name: Copy K3s service file
   register: k3s_service
