@@ -48,7 +48,6 @@
     creates: "{{ systemd_dir }}/k3s-init.service"
   delegate_to: "{{ groups['master'][0] }}"
   run_once: true
-  tags: [ "register" ]
 
 - name: Read k3s token from a specific host
   command: cat /var/lib/rancher/k3s/server/token
@@ -119,6 +118,7 @@
         name: k3s-init
         state: stopped
       failed_when: false
+  tags: [ "register" ]
 
 - name: Copy K3s service file
   register: k3s_service
